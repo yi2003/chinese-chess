@@ -279,6 +279,7 @@
     if (p0.y < 0.9) p0.y = 0.9; // 保证从高处抛出
     stone.position.copy(p0);
     Anim.scene.add(stone);
+    Audio.fire(); // 抛石机开火
     window.__stoneActive = true;
     var p1 = new THREE.Vector3(vp.x, 0.35, vp.z);
     var trailAt = [0.18, 0.36, 0.54];
@@ -309,6 +310,7 @@
     var grp = piece.group;
     var seq = Promise.resolve();
     addSplash(vp); // 交锋水花飞溅
+    Audio.warcry(); // 厮杀喊杀声
 
     switch (type) {
       case 'H': // 骑兵冲杀：大刀从高举横扫而下

@@ -19,9 +19,8 @@
   var mySide = null;      // 在线模式：'red' | 'black' | 'spec'；null = 本地热座
   var pendingMoves = [];  // 本地动画期间到达的远程着法队列（FIFO）
   var camPinned = false;  // __chess.setCamera 后钉死镜头（测试/调试用）
-  var camBase = new THREE.Vector3(0, 0, 0);   // 本局默认观察点（按 mySide）
-  var camFocusPos = null; // 选中部队时观察点临时靠近该格（y=0.8）
-  var shakeMag = 0;       // 吃子镜头震动幅度
+  var camBase = new THREE.Vector3(0, 0, 0);   // 本局固定观察点（按 mySide）
+  var shakeMag = 0;       // 吃子镜头轻微震动幅度
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -85,8 +84,10 @@
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.09;
+    controls.enableRotate = false; // 视角固定，玩家不旋转
+    controls.enablePan = false;
     controls.minDistance = 5;
-    controls.maxDistance = 24;
+    controls.maxDistance = 22;
     controls.maxPolarAngle = 1.42;
     controls.target.set(0, 0, 0);
 
@@ -168,24 +169,23 @@
   }
 
   /* ---------------- 建局 / 摆子 ---------------- */
-  /* 按当前模式/阵营设定默认相机：在线玩家=指挥官低机位，观战/本地=高机位 */
+  /* 视角固定，不可旋转；玩家俯视自己的阵营（红=看红方阵、黑=看黑方阵、观战/本地=看全盘） */
   function applyDefaultCamera() {
     camPinned = false;
-    camFocusPos = null;
-    var low = Net.isOnline() && (mySide === 'red' || mySide === 'black');
-    if (low) {
-      var back = mySide === 'red' ? 14.5 : -14.5;
-      camera.position.set(0, 3.4, back);
-      camBase.set(0, 0.8, 0);
-      controls.minDistance = 6;
-      controls.maxDistance = 26;
-      controls.maxPolarAngle = 1.45;
+    controls.enableRotate = false;
+    controls.enablePan = false;
+    controls.enableZoom = true;
+    controls.minDistance = 5;
+    controls.maxDistance = 22;
+    controls.maxPolarAngle = 1.42;
+    if (Net.isOnline() && (mySide === 'red' || mySide === 'black')) {
+      var dirZ = mySide === 'red' ? 7.0 : -7.0;
+      var targetZ = mySide === 'red' ? 1.5 : -1.5;
+      camera.position.set(0, 9.2, dirZ);
+      camBase.set(0, 0, targetZ);
     } else {
-      camera.position.set(0, 8.5, 11.5);
+      camera.position.set(0, 12, 0); // 观战/本地：正上俯视全盘
       camBase.set(0, 0, 0);
-      controls.minDistance = 5;
-      controls.maxDistance = 24;
-      controls.maxPolarAngle = 1.42;
     }
     controls.target.copy(camBase);
     controls.update();
@@ -290,16 +290,8 @@
     if (selected === piece) { deselect(); return; }
     deselect();
     select(piece);
-    /* 点兵：战鼓 + 镜头轻微贴近该部队（仅真实点击路径，测试走 __chess.select 不受影响） */
+    /* 点兵战鼓（仅真实点击路径，测试走 __chess.select 不受影响） */
     Audio.drum();
-    focusOn(piece);
-  }
-
-  /* 指挥官看向所选部队 */
-  function focusOn(piece) {
-    if (camPinned) return;
-    var p = Board.pos(piece.col, piece.row);
-    camFocusPos = new THREE.Vector3(p.x, 0.8, p.z);
   }
 
   function select(piece) {
@@ -327,7 +319,6 @@
     state = 'idle';
     Board.clearHighlights();
     if (selectedRingMesh) { scene.remove(selectedRingMesh); selectedRingMesh = null; }
-    camFocusPos = null; // 恢复指挥官视角观察点
   }
 
   /* ---------------- 调试/测试接口 ---------------- */
@@ -371,7 +362,6 @@
       camera.position.set(x, y, z);
       controls.target.set(tx, ty, tz);
       camPinned = true;
-      camFocusPos = null;
       shakeMag = 0;
       controls.update();
     },
@@ -566,11 +556,6 @@
     requestAnimationFrame(animate);
     var dt = clock.getDelta();
     var t = clock.elapsedTime;
-    /* 指挥官视角：观察点平滑移向所选部队（camPinned 时钉死） */
-    if (!camPinned) {
-      var aim = camFocusPos || camBase;
-      controls.target.lerp(aim, 1 - Math.exp(-4 * dt));
-    }
     controls.update();
 
     /* 待机呼吸：未在动画中的棋子轻微起伏，选中的棋子抬高 */

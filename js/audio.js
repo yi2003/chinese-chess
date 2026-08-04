@@ -141,15 +141,31 @@
       noise(0.05, { type: 'lowpass', freq: 700, gain: 0.12 });
     },
 
-    /* 吃子：金属兵刃撞击 */
+    /* 吃子：金属兵刃撞击（更重：高频余音 + 低频闷响 + 撞击） */
     clash: function () {
       var t0 = ctx ? ctx.currentTime : 0;
-      [920, 1480, 2350, 3650].forEach(function (f, i) {
-        note(f, 0.28, { type: 'square', gain: 0.1 / (i + 1), at: i * 0.012 });
+      [920, 1480, 2350, 3650, 5200].forEach(function (f, i) {
+        note(f, 0.3, { type: 'square', gain: 0.11 / (i + 1), at: i * 0.012 });
       });
-      noise(0.2, { type: 'highpass', freq: 1800, q: 0.7, gain: 0.25 });
-      note(180, 0.22, { type: 'sine', gain: 0.3, freqEnd: 60 });
+      noise(0.22, { type: 'highpass', freq: 1600, q: 0.7, gain: 0.32 });
+      note(180, 0.25, { type: 'sine', gain: 0.34, freqEnd: 55 });
+      noise(0.12, { type: 'bandpass', freq: 700, q: 0.8, gain: 0.22 });
       return t0;
+    },
+
+    /* 开火（抛石机发射）：机械顿挫 + 短促轰响 */
+    fire: function () {
+      if (!ctx || !enabled) return;
+      note(60, 0.35, { type: 'sine', gain: 0.5, freqEnd: 28 });
+      noise(0.5, { type: 'lowpass', freq: 1400, freqEnd: 250, gain: 0.4, attack: 0.005 });
+      note(320, 0.08, { type: 'square', gain: 0.18, freqEnd: 140 });
+    },
+
+    /* 喊杀：短促人声嘶吼 */
+    warcry: function () {
+      if (!ctx || !enabled) return;
+      noise(0.35, { type: 'bandpass', freq: 500, freqEnd: 1300, q: 0.5, gain: 0.22, attack: 0.03 });
+      noise(0.2, { type: 'highpass', freq: 2200, gain: 0.1, at: 0.02 });
     },
 
     /* 开炮：轰鸣 */
