@@ -153,6 +153,27 @@ html, body {
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+/* ---- 手机窄屏适配：顶栏单行紧凑，避免被挤压换行遮住棋盘 ---- */
+@media (max-width: 640px) {
+  #topbar { gap: 8px; padding: 8px 12px; flex-wrap: nowrap; }
+  #brand {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #roombadge {
+    font-size: 11px; padding: 3px 10px;
+    max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #moveinfo { display: none; }
+  .turn { font-size: 14px; padding: 3px 12px; white-space: nowrap; flex-shrink: 0; }
+  .actions { gap: 6px; flex-shrink: 0; }
+  .actions button { font-size: 12px; padding: 5px 10px; white-space: nowrap; }
+  #btn-leave, #btn-restart { font-size: 12px !important; padding: 5px 10px !important; }
+  /* 底部鼠标提示条在触屏上无意义且会溢出，隐藏 */
+  #help { display: none; }
+}
+
 /* ---- 在线大厅遮罩 ---- */
 #lobby {
   position: absolute;
