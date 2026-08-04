@@ -1,0 +1,16 @@
+{
+  "name": "xiangqi-3d",
+  "version": "1.0.0",
+  "description": "3D 拟人化中国象棋 · 支持多人在线开房间对战与观战",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/test-rules.js && node test/test-server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

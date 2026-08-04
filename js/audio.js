@@ -1,0 +1,154 @@
+/* ============================================================
+ * 程序化音效（Web Audio API 合成，无需音频文件）
+ * 动作 → 音色：选中=木敲，行棋=嗖+落步，马=哒哒马蹄，
+ * 吃子=兵刃撞击，被吃=倒地声，开炮=轰鸣，将军=警报，胜利=号角
+ * ============================================================ */
+(function () {
+  'use strict';
+
+  var ctx = null, master = null, noiseBuf = null;
+  var enabled = true;
+
+  function ensure() {
+    if (!ctx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ctx = new AC();
+      master = ctx.createGain();
+      master.gain.value = enabled ? 0.55 : 0;
+      master.connect(ctx.destination);
+      // 白噪声缓冲（复用）
+      var len = ctx.sampleRate * 1.2;
+      noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      var data = noiseBuf.getChannelData(0);
+      for (var i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+  }
+
+  function setEnabled(v) {
+    enabled = v;
+    if (master) master.gain.value = v ? 0.55 : 0;
+  }
+
+  /* 振荡器音符 */
+  function note(freq, dur, opts) {
+    if (!ctx || !enabled) return;
+    opts = opts || {};
+    var t = ctx.currentTime + (opts.at || 0);
+    var osc = ctx.createOscillator();
+    osc.type = opts.type || 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    if (opts.freqEnd) osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.freqEnd), t + dur);
+    var g = ctx.createGain();
+    var vol = opts.gain || 0.2;
+    var attack = opts.attack || 0.005;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(master);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  }
+
+  /* 滤波噪声 */
+  function noise(dur, opts) {
+    if (!ctx || !enabled) return;
+    opts = opts || {};
+    var t = ctx.currentTime + (opts.at || 0);
+    var src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    var filt = ctx.createBiquadFilter();
+    filt.type = opts.type || 'bandpass';
+    filt.frequency.setValueAtTime(opts.freq || 1000, t);
+    if (opts.freqEnd) filt.frequency.exponentialRampToValueAtTime(opts.freqEnd, t + dur);
+    if (opts.q) filt.Q.value = opts.q;
+    var g = ctx.createGain();
+    var vol = opts.gain || 0.2;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + (opts.attack || 0.01));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt); filt.connect(g); g.connect(master);
+    src.start(t); src.stop(t + dur + 0.05);
+  }
+
+  var Audio = {
+    ensure: ensure,
+    toggle: function () { setEnabled(!enabled); return enabled; },
+    isEnabled: function () { return enabled; },
+
+    /* 选中：木敲两下 */
+    select: function () {
+      note(300, 0.09, { type: 'triangle', gain: 0.28 });
+      note(410, 0.07, { type: 'triangle', gain: 0.2, at: 0.05 });
+      noise(0.03, { type: 'highpass', freq: 2500, gain: 0.1 });
+    },
+
+    /* 行棋：嗖 + 轻落步（马会额外播蹄声） */
+    move: function (type) {
+      noise(0.26, { type: 'bandpass', freq: 350, freqEnd: 900, q: 1.2, gain: 0.16, attack: 0.02 });
+      note(150, 0.1, { type: 'sine', gain: 0.12, freqEnd: 90 });
+    },
+
+    /* 马蹄：哒 */
+    hoof: function () {
+      noise(0.07, { type: 'bandpass', freq: 1600, freqEnd: 700, q: 1.5, gain: 0.3 });
+      note(120, 0.09, { type: 'sine', gain: 0.2, freqEnd: 70 });
+    },
+
+    /* 落步 */
+    land: function () {
+      note(140, 0.12, { type: 'sine', gain: 0.22, freqEnd: 75 });
+      noise(0.05, { type: 'lowpass', freq: 700, gain: 0.12 });
+    },
+
+    /* 吃子：金属兵刃撞击 */
+    clash: function () {
+      var t0 = ctx ? ctx.currentTime : 0;
+      [920, 1480, 2350, 3650].forEach(function (f, i) {
+        note(f, 0.28, { type: 'square', gain: 0.1 / (i + 1), at: i * 0.012 });
+      });
+      noise(0.2, { type: 'highpass', freq: 1800, q: 0.7, gain: 0.25 });
+      note(180, 0.22, { type: 'sine', gain: 0.3, freqEnd: 60 });
+      return t0;
+    },
+
+    /* 开炮：轰鸣 */
+    cannon: function () {
+      note(95, 0.45, { type: 'sine', gain: 0.45, freqEnd: 42 });
+      noise(0.4, { type: 'lowpass', freq: 900, freqEnd: 250, gain: 0.35, attack: 0.005 });
+      note(210, 0.12, { type: 'triangle', gain: 0.18, freqEnd: 120 });
+    },
+
+    /* 被吃：倒地 + 骨碌 */
+    captured: function () {
+      note(300, 0.3, { type: 'sine', gain: 0.2, freqEnd: 68 });       // 下坠
+      note(110, 0.2, { type: 'sine', gain: 0.28, at: 0.12, freqEnd: 55 }); // 撞地
+      for (var i = 0; i < 5; i++) {
+        noise(0.04, { type: 'bandpass', freq: 900 + i * 350, q: 2, gain: 0.12, at: 0.16 + i * 0.06 });
+      }
+    },
+
+    /* 将军：警报 */
+    check: function () {
+      note(660, 0.16, { type: 'square', gain: 0.12 });
+      note(880, 0.22, { type: 'square', gain: 0.12, at: 0.16 });
+      note(660, 0.18, { type: 'square', gain: 0.12, at: 0.4 });
+    },
+
+    /* 胜利：短号角 */
+    win: function () {
+      var seq = [523, 659, 784, 1047, 1318];
+      seq.forEach(function (f, i) { note(f, 0.3, { type: 'triangle', gain: 0.22, at: i * 0.14 }); });
+      [523, 659, 784, 1047].forEach(function (f) { note(f, 0.8, { type: 'triangle', gain: 0.09, at: 0.8 }); });
+    },
+
+    /* 非法：低鸣 */
+    illegal: function () {
+      note(110, 0.18, { type: 'square', gain: 0.1 });
+      note(105, 0.16, { type: 'square', gain: 0.08, at: 0.06 });
+    }
+  };
+
+  window.Audio = Audio;
+})();

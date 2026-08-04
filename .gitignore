@@ -1,0 +1,7 @@
+node_modules/
+.claude/
+.probe/
+*.log
+test/.chrome-profile/
+test/.chrome-profile-online/
+test/.chrome-profile2/
