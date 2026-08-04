@@ -7,6 +7,7 @@
   'use strict';
 
   var ctx = null, master = null, noiseBuf = null;
+  var rainBuf = null, rainSource = null, rainFilter = null, rainGain = null;
   var enabled = true;
 
   function ensure() {
@@ -17,13 +18,49 @@
       master = ctx.createGain();
       master.gain.value = enabled ? 0.55 : 0;
       master.connect(ctx.destination);
-      // 白噪声缓冲（复用）
+      // 白噪声缓冲（复用，一次性音效）
       var len = ctx.sampleRate * 1.2;
       noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
       var data = noiseBuf.getChannelData(0);
       for (var i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      // 雨声缓冲（4s，循环）
+      var rlen = ctx.sampleRate * 4;
+      rainBuf = ctx.createBuffer(1, rlen, ctx.sampleRate);
+      var rd = rainBuf.getChannelData(0);
+      for (var j = 0; j < rlen; j++) rd[j] = Math.random() * 2 - 1;
+      rainStart();
     }
     if (ctx.state === 'suspended') ctx.resume();
+  }
+
+  /* 持续雨声：循环白噪声 → 低通 → 轻音量（背景氛围），静音走 master gain 不影响它 */
+  function rainStart() {
+    if (!ctx || !enabled || rainSource) return;
+    rainSource = ctx.createBufferSource();
+    rainSource.buffer = rainBuf;
+    rainSource.loop = true;
+    rainFilter = ctx.createBiquadFilter();
+    rainFilter.type = 'lowpass';
+    rainFilter.frequency.value = 750;
+    rainGain = ctx.createGain();
+    rainGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    rainGain.gain.linearRampToValueAtTime(0.075, ctx.currentTime + 1.5);
+    rainSource.connect(rainFilter);
+    rainFilter.connect(rainGain);
+    rainGain.connect(master);
+    rainSource.start();
+  }
+
+  function rainStop() {
+    if (!ctx || !rainSource) return;
+    var g = rainGain, src = rainSource, t = ctx.currentTime;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), t);
+    g.gain.linearRampToValueAtTime(0.0001, t + 0.5);
+    setTimeout(function () {
+      try { src.stop(); src.disconnect(); } catch (e) {}
+      if (rainSource === src) { rainSource = null; rainFilter = null; rainGain = null; }
+    }, 600);
   }
 
   function setEnabled(v) {
@@ -76,6 +113,8 @@
     ensure: ensure,
     toggle: function () { setEnabled(!enabled); return enabled; },
     isEnabled: function () { return enabled; },
+    rainStart: rainStart,
+    rainStop: rainStop,
 
     /* 选中：木敲两下 */
     select: function () {
@@ -147,6 +186,39 @@
     illegal: function () {
       note(110, 0.18, { type: 'square', gain: 0.1 });
       note(105, 0.16, { type: 'square', gain: 0.08, at: 0.06 });
+    },
+
+    /* 雷声：低频轰鸣 + 衰减回声 */
+    thunder: function () {
+      if (!ctx || !enabled) return;
+      note(50, 0.6, { type: 'sine', gain: 0.5, freqEnd: 25 });
+      noise(2.2, { type: 'lowpass', freq: 220, freqEnd: 55, gain: 0.4, attack: 0.02 });
+      noise(1.4, { type: 'lowpass', freq: 120, freqEnd: 40, gain: 0.25, attack: 0.08, at: 0.7 });
+    },
+
+    /* 战鼓（选中/点兵）：低鼓两下 */
+    drum: function () {
+      if (!ctx || !enabled) return;
+      note(95, 0.2, { type: 'triangle', gain: 0.4, freqEnd: 50 });
+      note(95, 0.2, { type: 'triangle', gain: 0.3, at: 0.12, freqEnd: 50 });
+      noise(0.06, { type: 'bandpass', freq: 400, q: 1.2, gain: 0.22 });
+    },
+
+    /* 冲锋（下达走子命令）：加速鼓点 + 部队喊杀 */
+    charge: function () {
+      if (!ctx || !enabled) return;
+      [0, 0.14, 0.26, 0.36, 0.44, 0.50].forEach(function (t) {
+        note(90, 0.12, { type: 'triangle', gain: 0.34, at: t, freqEnd: 55 });
+        noise(0.05, { type: 'bandpass', freq: 500, q: 1.3, gain: 0.2, at: t });
+      });
+      noise(0.8, { type: 'bandpass', freq: 700, freqEnd: 1500, q: 0.7, gain: 0.16, attack: 0.12 });
+    },
+
+    /* 落地水花（吃子/落地溅起） */
+    splash: function () {
+      if (!ctx || !enabled) return;
+      noise(0.12, { type: 'bandpass', freq: 1200, freqEnd: 400, q: 1.2, gain: 0.2 });
+      note(800, 0.05, { type: 'triangle', gain: 0.08 });
     }
   };
 

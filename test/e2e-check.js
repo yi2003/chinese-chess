@@ -137,6 +137,9 @@ async function main() {
     await sleep(180);
   }
   await ev('__chess.reset()');
+  // 战场低机位会遮挡点击坐标 → 先钉死俯视相机，等阻尼稳定
+  await ev('__chess.setCamera(0,9.5,12.5,0,0,0)');
+  await sleep(150);
   // 点红马 (1,9)
   await clickScreen(1, 9);
   ok(await ev('__chess.state') === 'selected', '点击红马后进入 selected');

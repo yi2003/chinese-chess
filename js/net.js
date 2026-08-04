@@ -32,7 +32,7 @@
   function hide(elId) { $(elId).classList.add('hidden'); }
 
   function showMenu() {
-    show('lobby-menu'); hide('lobby-waiting'); hide('lobby-disconnected');
+    show('lobby-menu'); hide('lobby-waiting'); hide('lobby-disconnected'); hide('lobby-err');
     setStatus(connectedOnce ? '已连接服务器，创建房间或输入房间码加入' : '正在连接服务器…');
     $('btn-leave').classList.add('hidden');
     $('roombadge').classList.add('hidden');
@@ -170,6 +170,13 @@
         break;
       }
       case 'error': {
+        var errEl = $('lobby-err');
+        if (errEl) {
+          errEl.textContent = msg.message || '操作失败';
+          errEl.classList.remove('hidden');
+          setTimeout(function () { errEl.classList.add('hidden'); }, 5000);
+        }
+        if (msg.code === 'ROOM_NOT_FOUND') setStatus('房间不存在或已关闭，请核对房间码');
         if (Net.handlers.onError) Net.handlers.onError(msg);
         break;
       }

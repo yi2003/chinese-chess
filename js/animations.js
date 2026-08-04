@@ -45,7 +45,7 @@
     n = n || 8;
     for (var i = 0; i < n; i++) {
       var mat = new THREE.MeshBasicMaterial({
-        color: 0xcbb293, transparent: true, opacity: 0.75, depthWrite: false
+        color: 0x7b8087, transparent: true, opacity: 0.75, depthWrite: false
       });
       var m = new THREE.Mesh(new THREE.SphereGeometry(0.05 + Math.random() * 0.05, 6, 5), mat);
       m.position.set(
@@ -82,14 +82,14 @@
     var m = new THREE.Mesh(geo, mat);
     m.position.set(pos.x, 0.55, pos.z);
     m.rotation.y = rotY;
-    m.scale.set(0.3, 0.3, 1);
+    m.scale.set(0.45, 0.45, 1);
     Anim.scene.add(m);
-    var t = 0, dur = 0.3;
+    var t = 0, dur = 0.4;
     spawnEffect({
       update: function (dt) {
         t += dt;
         var e = Math.min(1, t / dur);
-        var s = 0.3 + e * 1.35;
+        var s = 0.45 + e * 1.55;
         m.scale.set(s, s, 1);
         m.material.opacity = 0.95 * (1 - e);
         if (t >= dur) this.dead = true;
@@ -98,10 +98,10 @@
     });
   }
 
-  /* 受击闪光（扩散红环 + 红球） */
+  /* 受击闪光（扩散红环 + 红球 + 地面冲击环） */
   function addHit(pos) {
     var ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.12, 0.34, 26),
+      new THREE.RingGeometry(0.18, 0.42, 26),
       new THREE.MeshBasicMaterial({
         color: 0xff5a3a, transparent: true, opacity: 0.95,
         side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending
@@ -110,8 +110,18 @@
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(pos.x, 0.06, pos.z);
     Anim.scene.add(ring);
+    var shock = new THREE.Mesh(
+      new THREE.RingGeometry(0.1, 0.22, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xcfd8e6, transparent: true, opacity: 0.5,
+        side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending
+      })
+    );
+    shock.rotation.x = -Math.PI / 2;
+    shock.position.set(pos.x, 0.03, pos.z);
+    Anim.scene.add(shock);
     var ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 12, 10),
+      new THREE.SphereGeometry(0.26, 12, 10),
       new THREE.MeshBasicMaterial({
         color: 0xff6a45, transparent: true, opacity: 0.85, depthWrite: false,
         blending: THREE.AdditiveBlending
@@ -119,23 +129,59 @@
     );
     ball.position.set(pos.x, 0.75, pos.z);
     Anim.scene.add(ball);
-    var t = 0, dur = 0.3;
+    var t = 0, dur = 0.42;
     spawnEffect({
       update: function (dt) {
         t += dt;
         var e = Math.min(1, t / dur);
         ring.scale.set(1 + e * 2.4, 1 + e * 2.4, 1);
         ring.material.opacity = 0.95 * (1 - e);
+        shock.scale.set(1 + e * 5.5, 1 + e * 5.5, 1);
+        shock.material.opacity = 0.5 * (1 - e);
         ball.scale.multiplyScalar(1 + dt * 2.5);
         ball.material.opacity = 0.85 * (1 - e);
         if (t >= dur) this.dead = true;
       },
       dispose: function () {
-        Anim.scene.remove(ring); Anim.scene.remove(ball);
+        Anim.scene.remove(ring); Anim.scene.remove(ball); Anim.scene.remove(shock);
         ring.geometry.dispose(); ring.material.dispose();
         ball.geometry.dispose(); ball.material.dispose();
+        shock.geometry.dispose(); shock.material.dispose();
       }
     });
+  }
+
+  /* 落地水花：水珠上抛后重力回落 */
+  function addSplash(pos) {
+    if (window.Audio) Audio.splash();
+    var n = 6 + Math.floor(Math.random() * 5);
+    for (var i = 0; i < n; i++) {
+      var mat = new THREE.MeshBasicMaterial({
+        color: 0x7a8791, transparent: true, opacity: 0.8, depthWrite: false
+      });
+      var m = new THREE.Mesh(new THREE.SphereGeometry(0.035 + Math.random() * 0.03, 6, 5), mat);
+      m.position.set(
+        pos.x + (Math.random() - 0.5) * 0.5,
+        0.05 + Math.random() * 0.05,
+        pos.z + (Math.random() - 0.5) * 0.5
+      );
+      var vx = (Math.random() - 0.5) * 1.2, vy = 0.9 + Math.random() * 0.7, vz = (Math.random() - 0.5) * 1.2;
+      var life = 0.5, t = 0;
+      Anim.scene.add(m);
+      spawnEffect({
+        update: function (dt) {
+          t += dt;
+          vy -= 3.5 * dt;
+          m.position.x += vx * dt;
+          m.position.y += vy * dt;
+          m.position.z += vz * dt;
+          if (m.position.y < 0) { m.position.y = 0; vy *= -0.35; }
+          m.material.opacity = 0.8 * (1 - t / life);
+          if (t >= life) this.dead = true;
+        },
+        dispose: function () { Anim.scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+      });
+    }
   }
 
   /* ---------------- 行棋 / 冲锋 ---------------- */
@@ -200,11 +246,11 @@
       grp.rotation.set(0, 0, 0);
       if (isHorse && anchors.legs) {
         anchors.legs.forEach(function (l) { l.group.rotation.z = 0; });
-        addDust(end, isCapture ? 8 : 6);
+        addDust(end, isCapture ? 14 : 6);
         Audio.hoof();
         Audio.land();
       } else {
-        addDust(end, 4);
+        addDust(end, isCapture ? 10 : 4);
         Audio.land();
       }
     });
@@ -262,6 +308,7 @@
     var vp = victim.group.position;
     var grp = piece.group;
     var seq = Promise.resolve();
+    addSplash(vp); // 交锋水花飞溅
 
     switch (type) {
       case 'H': // 骑兵冲杀：大刀从高举横扫而下
@@ -363,6 +410,7 @@
   function removeVictim(piece) {
     var grp = piece.group;
     var mats = [];
+    addSplash(grp.position); // 倒地水花
     grp.traverse(function (o) {
       if (o.isMesh) {
         var m = o.material;
@@ -399,6 +447,7 @@
   Anim.addDust = addDust;
   Anim.addSlash = addSlash;
   Anim.addHit = addHit;
+  Anim.addSplash = addSplash;
   Anim.move = move;
   Anim.attack = attack;
   Anim.removeVictim = removeVictim;

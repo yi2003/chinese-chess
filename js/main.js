@@ -18,6 +18,10 @@
   var msgTimer = null;
   var mySide = null;      // 在线模式：'red' | 'black' | 'spec'；null = 本地热座
   var pendingMoves = [];  // 本地动画期间到达的远程着法队列（FIFO）
+  var camPinned = false;  // __chess.setCamera 后钉死镜头（测试/调试用）
+  var camBase = new THREE.Vector3(0, 0, 0);   // 本局默认观察点（按 mySide）
+  var camFocusPos = null; // 选中部队时观察点临时靠近该格（y=0.8）
+  var shakeMag = 0;       // 吃子镜头震动幅度
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -30,19 +34,19 @@
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.25;
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0c0e15);
-    scene.fog = new THREE.Fog(0x0c0e15, 22, 40);
+    scene.background = new THREE.Color(0x0a0d14);
+    scene.fog = new THREE.Fog(0x0a0d14, 8, 30);
 
     camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position.set(0, 9.5, 12.5);
 
-    /* 灯光（暖主光 + 冷色轮廓光 + 环境）让唐代色彩清晰可辨 */
-    scene.add(new THREE.HemisphereLight(0x9fb2cc, 0x2a2016, 0.78));
-    var dir = new THREE.DirectionalLight(0xe8cd9c, 1.45);
-    dir.position.set(6, 13, 5);
+    /* 灯光（冷调暗夜 + 闪电补充） */
+    scene.add(new THREE.HemisphereLight(0x6a7c9c, 0x14181f, 0.5));
+    var dir = new THREE.DirectionalLight(0xb8c6da, 1.0);
+    dir.position.set(8, 12, 6);
     dir.castShadow = true;
     dir.shadow.mapSize.set(1024, 1024);
     dir.shadow.camera.left = -8; dir.shadow.camera.right = 8;
@@ -50,16 +54,16 @@
     dir.shadow.camera.near = 1; dir.shadow.camera.far = 35;
     dir.shadow.camera.updateProjectionMatrix();
     scene.add(dir);
-    var rim = new THREE.DirectionalLight(0x7a94b8, 0.55); // 冷色轮廓光
-    rim.position.set(-7, 9, -8);
+    var rim = new THREE.DirectionalLight(0x4a5a74, 0.35); // 冷色轮廓光
+    rim.position.set(-6, 8, -7);
     scene.add(rim);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.26));
+    scene.add(new THREE.AmbientLight(0x3a4a66, 0.18));
 
     /* 程序化环境反射贴图：让金属/丝绸呈现真实反光 */
     (function setupEnv() {
       var pmrem = new THREE.PMREMGenerator(renderer);
       var envScene = new THREE.Scene();
-      envScene.background = new THREE.Color(0x14161d);
+      envScene.background = new THREE.Color(0x0a0d14);
       function panel(color, x, y, z, w) {
         var m = new THREE.Mesh(
           new THREE.PlaneGeometry(w || 5, w ? w * 0.6 : 3),
@@ -69,10 +73,10 @@
         m.lookAt(0, 0, 0);
         envScene.add(m);
       }
-      panel(0xfff3dd, 6, 4, 6);      // 暖主光
-      panel(0x8aa6d0, -7, 3, -6, 4); // 冷补光
-      panel(0xffffff, 0, 9, 0);      // 顶光
-      panel(0x3a4350, 0, -5, 0, 9);  // 地光
+      panel(0x7c8fa8, 6, 4, 6);      // 主光（冷蓝）
+      panel(0x5a6b85, -7, 3, -6, 4); // 冷补光
+      panel(0x8fa3bd, 0, 9, 0);      // 顶光
+      panel(0x0e1117, 0, -5, 0, 9);  // 地光
       var rt = pmrem.fromScene(envScene, 0.18);
       scene.environment = rt.texture;
     })();
@@ -89,6 +93,7 @@
     Board.scene = scene;
     Anim.scene = scene;
     Board.buildBoard(scene);
+    Atmos.init(scene);
 
     /* 事件 */
     canvas.addEventListener('pointerdown', onPointerDown);
@@ -163,6 +168,29 @@
   }
 
   /* ---------------- 建局 / 摆子 ---------------- */
+  /* 按当前模式/阵营设定默认相机：在线玩家=指挥官低机位，观战/本地=高机位 */
+  function applyDefaultCamera() {
+    camPinned = false;
+    camFocusPos = null;
+    var low = Net.isOnline() && (mySide === 'red' || mySide === 'black');
+    if (low) {
+      var back = mySide === 'red' ? 14.5 : -14.5;
+      camera.position.set(0, 3.4, back);
+      camBase.set(0, 0.8, 0);
+      controls.minDistance = 6;
+      controls.maxDistance = 26;
+      controls.maxPolarAngle = 1.45;
+    } else {
+      camera.position.set(0, 8.5, 11.5);
+      camBase.set(0, 0, 0);
+      controls.minDistance = 5;
+      controls.maxDistance = 24;
+      controls.maxPolarAngle = 1.42;
+    }
+    controls.target.copy(camBase);
+    controls.update();
+  }
+
   /* 按指定局面重建棋盘（本地开局用 Xiangqi.newGame()，在线用服务端局面） */
   function loadState(st) {
     pieces.forEach(function (p) { scene.remove(p.group); });
@@ -186,8 +214,7 @@
     resetPlayAgainBtn();
     setMsg('');
     updateHUD();
-    controls.target.set(0, 0, 0);
-    camera.position.set(0, 9.5, 12.5);
+    applyDefaultCamera();
     if (game.gameOver) showWin(); // 中途加入/接替时若已终局则直接显示结果
   }
 
@@ -263,6 +290,16 @@
     if (selected === piece) { deselect(); return; }
     deselect();
     select(piece);
+    /* 点兵：战鼓 + 镜头轻微贴近该部队（仅真实点击路径，测试走 __chess.select 不受影响） */
+    Audio.drum();
+    focusOn(piece);
+  }
+
+  /* 指挥官看向所选部队 */
+  function focusOn(piece) {
+    if (camPinned) return;
+    var p = Board.pos(piece.col, piece.row);
+    camFocusPos = new THREE.Vector3(p.x, 0.8, p.z);
   }
 
   function select(piece) {
@@ -290,6 +327,7 @@
     state = 'idle';
     Board.clearHighlights();
     if (selectedRingMesh) { scene.remove(selectedRingMesh); selectedRingMesh = null; }
+    camFocusPos = null; // 恢复指挥官视角观察点
   }
 
   /* ---------------- 调试/测试接口 ---------------- */
@@ -328,10 +366,13 @@
       };
     },
 
-    /* 相机调试：定位视角 */
+    /* 相机调试：定位视角（钉死镜头，停用贴近/震动，供测试稳定点击） */
     setCamera: function (x, y, z, tx, ty, tz) {
       camera.position.set(x, y, z);
       controls.target.set(tx, ty, tz);
+      camPinned = true;
+      camFocusPos = null;
+      shakeMag = 0;
       controls.update();
     },
 
@@ -388,6 +429,9 @@
     deselect();
     state = 'busy'; // 动画期间锁定输入
 
+    /* 下达冲锋命令 */
+    Audio.charge();
+
     /* 乐观发送：动画前告知服务器，减少对手感知延迟 */
     if (opts.send !== false && Net.isOnline()) Net.sendMove(from, to);
 
@@ -396,6 +440,7 @@
     try {
       await Anim.move(piece, from, to, !!victim);
       if (victim) {
+        shakeMag = Math.max(shakeMag, 0.3); // 吃子镜头轻震
         await Anim.attack(piece, victim);
         await Anim.removeVictim(victim);
       }
@@ -521,6 +566,11 @@
     requestAnimationFrame(animate);
     var dt = clock.getDelta();
     var t = clock.elapsedTime;
+    /* 指挥官视角：观察点平滑移向所选部队（camPinned 时钉死） */
+    if (!camPinned) {
+      var aim = camFocusPos || camBase;
+      controls.target.lerp(aim, 1 - Math.exp(-4 * dt));
+    }
     controls.update();
 
     /* 待机呼吸：未在动画中的棋子轻微起伏，选中的棋子抬高 */
@@ -534,6 +584,16 @@
 
     Board.updateHighlights(dt);
     Anim.updateEffects(dt);
+    Atmos.update(dt, t);
+    /* 吃子镜头轻震（随机偏移 + 衰减） */
+    if (shakeMag > 0.0005 && !camPinned) {
+      camera.position.x += (Math.random() - 0.5) * shakeMag;
+      camera.position.z += (Math.random() - 0.5) * shakeMag;
+      camera.position.y += (Math.random() - 0.5) * shakeMag * 0.6;
+      shakeMag *= Math.exp(-7 * dt);
+    } else {
+      shakeMag = 0;
+    }
     renderer.render(scene, camera);
   }
 

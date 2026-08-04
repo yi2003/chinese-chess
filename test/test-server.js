@@ -67,7 +67,7 @@ class Client {
 function makeMirror() { return X.newGame(); }
 
 async function main() {
-  const { httpServer } = await startServer(0);
+  const { httpServer } = await startServer(0, { graceMs: 150 }); // 短宽限期便于测试
   const port = httpServer.address().port;
   const url = 'ws://127.0.0.1:' + port + '/ws';
   console.log('服务器已启动 :' + port);
@@ -221,16 +221,30 @@ async function main() {
     newcomer.close();
   });
 
-  await test('双方都离开 → 房间清理', async () => {
+  await test('宽限期：房主离开后凭码仍可加入', async () => {
+    const a = await new Client(url).open();
+    a.send({ type: 'create' });
+    const created = await a.waitFor((m) => m.type === 'created');
+    a.close(); // 房主离开 → 房间进入宽限期
+    await new Promise((r) => setTimeout(r, 50));
+    const b = await new Client(url).open();
+    b.send({ type: 'join', code: created.code });
+    const joined = await b.waitFor((m) => m.type === 'joined');
+    ok(joined.side === 'red', '宽限期内新玩家凭码加入成为红方');
+    ok(joined.phase === 'waiting', '等待对手加入（phase=waiting）');
+    b.close();
+  });
+
+  await test('双方都离开 → 宽限期后房间清理', async () => {
     const a = await new Client(url).open();
     a.send({ type: 'create' });
     const created = await a.waitFor((m) => m.type === 'created');
     a.close();
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 500)); // 超过 150ms 宽限期
     const b = await new Client(url).open();
     b.send({ type: 'join', code: created.code });
     const err = await b.waitFor((m) => m.type === 'error');
-    ok(err.code === 'ROOM_NOT_FOUND', '房主离开后房间已删除');
+    ok(err.code === 'ROOM_NOT_FOUND', '宽限期结束后房间已清理');
     b.close();
   });
 

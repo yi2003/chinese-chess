@@ -61,8 +61,22 @@ function serveStatic(req, res) {
 /* ---------------- 房间系统 ---------------- */
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混 I/O/0/1
+let ROOM_GRACE_MS = 15 * 60 * 1000; // 空房间宽限期：创建者掉线后凭码仍可加入（测试可注入小值）
 
 const rooms = new Map(); // code -> room
+
+/* 空房间宽限期后删除；期内凭码仍可加入 */
+function scheduleRoomDeath(room) {
+  if (room._deathTimer) clearTimeout(room._deathTimer);
+  room._deathTimer = setTimeout(function () {
+    if (!room.red && !room.black) {
+      rooms.delete(room.code);
+      room.specs.forEach((s) => send(s, { type: 'room_closed' }));
+      room.specs.clear();
+    }
+    room._deathTimer = null;
+  }, ROOM_GRACE_MS);
+}
 
 function snapshot(state) {
   return JSON.parse(JSON.stringify(state));
@@ -132,7 +146,8 @@ function createRoom(ws) {
 function joinRoom(ws, code) {
   code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const room = rooms.get(code);
-  if (!room) return sendError(ws, 'ROOM_NOT_FOUND', '房间不存在，请检查房间码');
+  if (!room) return sendError(ws, 'ROOM_NOT_FOUND', '房间不存在或已关闭，请核对房间码');
+  if (room._deathTimer) { clearTimeout(room._deathTimer); room._deathTimer = null; } // 有人加入，取消宽限期删除
 
   if (ws.room && ws.role) leaveRoom(ws);
 
@@ -158,14 +173,12 @@ function joinRoom(ws, code) {
 
   room.rematch = { red: false, black: false };
 
-  /* 房间已终局、新玩家接替座位 → 直接开新局，避免落入死局 */
+  /* 房间已终局、新玩家接替座位 → 重置局面，避免落入死局 */
   const resetOver = room.state.gameOver;
   if (resetOver) {
     room.state = Xiangqi.newGame();
-    room.phase = 'playing';
-  } else if (room.red && room.black) {
-    room.phase = 'playing';
   }
+  if (room.red && room.black) room.phase = 'playing';
 
   send(ws, {
     type: 'joined', code, side,
@@ -265,9 +278,7 @@ function leaveRoom(ws) {
   }
 
   if (!room.red && !room.black) {
-    rooms.delete(code);
-    room.specs.forEach((s) => send(s, { type: 'room_closed' }));
-    room.specs.clear();
+    scheduleRoomDeath(room); // 空房进入宽限期：创建者掉线后凭码仍可加入
   } else if (room.specs.size) {
     broadcastPlayers(room, { type: 'spec_count', n: room.specs.size });
   }
@@ -278,7 +289,8 @@ function leaveRoom(ws) {
 
 /* ---------------- 服务器装配 ---------------- */
 
-function startServer(port) {
+function startServer(port, options) {
+  if (options && typeof options.graceMs === 'number') ROOM_GRACE_MS = options.graceMs;
   const httpServer = http.createServer((req, res) => {
     if (req.url === '/healthz' || req.url === '/healthz/') {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
