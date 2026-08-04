@@ -179,10 +179,9 @@
     controls.maxDistance = 22;
     controls.maxPolarAngle = 1.42;
     if (Net.isOnline() && (mySide === 'red' || mySide === 'black')) {
-      var dirZ = mySide === 'red' ? 7.0 : -7.0;
-      var targetZ = mySide === 'red' ? 1.5 : -1.5;
-      camera.position.set(0, 9.2, dirZ);
-      camBase.set(0, 0, targetZ);
+      var dirZ = mySide === 'red' ? 6.5 : -6.5;
+      camera.position.set(0, 11, dirZ); // 抬高拉远：全盘入画，己方阵营仍占下部
+      camBase.set(0, 0, 0);
     } else {
       camera.position.set(0, 12, 0); // 观战/本地：正上俯视全盘
       camBase.set(0, 0, 0);
