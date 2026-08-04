@@ -26,11 +26,11 @@
 
   function init() {
     var canvas = $('game');
-    renderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvas });
+    renderer = new THREE.WebGLRenderer({ antialias: false, canvas: canvas }); // 关 MSAA，移动端省大量填充
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // 控 DPR，减少移动端填充量
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // 普通 PCF 比 PCFSoft 便宜
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
@@ -47,7 +47,7 @@
     var dir = new THREE.DirectionalLight(0xb8c6da, 1.0);
     dir.position.set(8, 12, 6);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(1024, 1024);
+    dir.shadow.mapSize.set(512, 512); // 512 阴影贴图，显著降低阴影 pass 开销
     dir.shadow.camera.left = -8; dir.shadow.camera.right = 8;
     dir.shadow.camera.top = 8; dir.shadow.camera.bottom = -8;
     dir.shadow.camera.near = 1; dir.shadow.camera.far = 35;
@@ -94,6 +94,7 @@
     Board.scene = scene;
     Anim.scene = scene;
     Board.buildBoard(scene);
+    Atmos.renderer = renderer;
     Atmos.init(scene);
 
     /* 事件 */
