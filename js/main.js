@@ -436,7 +436,7 @@
       }
     } catch (err) { console.error(err); }
     piece.busy = false;
-    // 抛石机原地投石，动画后落位到目标格
+    // 火炮原地开火，动画后落位到目标格
     piece.group.position.copy(Board.pos(to.col, to.row));
     piece.group.position.y = 0;
 

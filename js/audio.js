@@ -168,6 +168,64 @@
       noise(0.2, { type: 'highpass', freq: 2200, gain: 0.1, at: 0.02 });
     },
 
+    /* 士卒嘶吼（突刺/挥砍时的爆发） */
+    grunt: function () {
+      if (!ctx || !enabled) return;
+      noise(0.22, { type: 'bandpass', freq: 420, freqEnd: 210, q: 0.6, gain: 0.26, attack: 0.02 });
+      noise(0.1, { type: 'highpass', freq: 1800, gain: 0.08, at: 0.02 });
+    },
+
+    /* 战车辚辚：低闷滚轮 + 木轴吱嘎 */
+    rumble: function () {
+      if (!ctx || !enabled) return;
+      noise(0.5, { type: 'lowpass', freq: 320, freqEnd: 130, q: 0.8, gain: 0.2, attack: 0.05 });
+      note(60, 0.4, { type: 'sine', gain: 0.14, freqEnd: 38 });
+      noise(0.16, { type: 'bandpass', freq: 1400, q: 3, gain: 0.06, at: 0.1 });
+    },
+
+    /* 马嘶：上滑音 + 强颤音（whinny） */
+    neigh: function () {
+      if (!ctx || !enabled) return;
+      var t = ctx.currentTime + 0.02, dur = 0.95;
+      var osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(300, t);
+      osc.frequency.linearRampToValueAtTime(560, t + 0.18);
+      osc.frequency.linearRampToValueAtTime(880, t + 0.38);
+      osc.frequency.linearRampToValueAtTime(520, t + 0.72);
+      osc.frequency.linearRampToValueAtTime(430, t + dur);
+      var lfo = ctx.createOscillator();
+      lfo.type = 'sine'; lfo.frequency.value = 6;
+      var lfoGain = ctx.createGain(); lfoGain.gain.value = 42;
+      lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.17, t + 0.06);
+      g.gain.setValueAtTime(0.17, t + 0.45);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.connect(g); g.connect(master);
+      osc.start(t); osc.stop(t + dur + 0.05);
+      lfo.start(t); lfo.stop(t + dur + 0.05);
+    },
+
+    /* 象鸣：低沉怒吼 + 上冲短促号叫 */
+    trumpet: function () {
+      if (!ctx || !enabled) return;
+      var t = ctx.currentTime + 0.02, dur = 0.75;
+      var osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(160, t);
+      osc.frequency.linearRampToValueAtTime(230, t + 0.22);
+      osc.frequency.linearRampToValueAtTime(150, t + dur);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.2, t + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.connect(g); g.connect(master);
+      osc.start(t); osc.stop(t + dur + 0.05);
+      noise(0.55, { type: 'lowpass', freq: 360, freqEnd: 150, gain: 0.16, attack: 0.02 });
+    },
+
     /* 开炮：轰鸣 */
     cannon: function () {
       note(95, 0.45, { type: 'sine', gain: 0.45, freqEnd: 42 });

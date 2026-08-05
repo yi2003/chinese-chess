@@ -13,6 +13,7 @@
   var side = null;      // 'red' | 'black' | 'spec'（有房时）
   var roomCode = null;
   var connectedOnce = false;
+  var forceLocal = false; // 用户主动选"本地双人对弈"后，WS 迟到事件不得再切回 online
   var handlers = {};
 
   var $ = function (id) { return document.getElementById(id); };
@@ -207,6 +208,7 @@
     }
 
     ws.onopen = function () {
+      if (forceLocal) return; // 用户已选本地双人，忽略迟到的在线连接
       connectedOnce = true;
       mode = 'online';
       setStatus('已连接服务器，创建房间或输入房间码加入');
@@ -219,6 +221,12 @@
     };
     ws.onerror = function () { /* 走 onclose */ };
     ws.onclose = function () {
+      if (forceLocal) {
+        /* 用户已选本地双人：断连不打扰，保持在本地热座 */
+        mode = 'local';
+        hideLobby();
+        return;
+      }
       if (!connectedOnce) {
         /* 从未连上（纯静态服务 / 无服务器）→ 本地热座 */
         mode = 'local';
@@ -262,7 +270,10 @@
     $('btn-leave').addEventListener('click', function () { Net.leave(); });
     $('btn-reload').addEventListener('click', function () { location.reload(); });
     $('btn-local-play').addEventListener('click', function () {
-      /* 不建房，直接本地双人对弈 */
+      /* 不建房，直接本地双人对弈：mode 必须切回 local，否则 isOnline() 为真、
+       * canMoveLocally() 因 mySide=null 返回 false，双方都点不动子 */
+      forceLocal = true;
+      mode = 'local';
       side = null;
       roomCode = null;
       hideLobby();

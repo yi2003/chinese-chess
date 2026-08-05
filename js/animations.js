@@ -1,6 +1,7 @@
 /* ============================================================
- * 动画系统：行棋（马=骑兵奔跑 / 其余跳跃）、吃子挥砍、
- * 被吃倒地淡出、尘土/刀光/受击特效
+ * 动画系统：行棋（马=骑兵奔跑 / 其余跳跃）、吃子（各自特色：
+ * 马=人立嘶鸣跃劈、象=扬鼻鸣叫重踏、车=隆隆冲撞、帅/兵=嘶吼劈刺、
+ * 炮=后坐炮口闪光弹丸出膛）、被吃倒地淡出、尘土/刀光/受击/炮口特效
  * 所有动画返回 Promise，主流程 await 串行播放。
  * ============================================================ */
 (function () {
@@ -184,6 +185,32 @@
     }
   }
 
+  /* 炮口闪光：亮橙爆团 + 硝烟 + 开火轰鸣 */
+  function addMuzzleFlash(pos) {
+    var m = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 10, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd9a0, transparent: true, opacity: 0.95,
+        depthWrite: false, blending: THREE.AdditiveBlending
+      })
+    );
+    m.position.copy(pos);
+    Anim.scene.add(m);
+    var t = 0, dur = 0.3;
+    spawnEffect({
+      update: function (dt) {
+        t += dt;
+        var e = Math.min(1, t / dur);
+        m.scale.setScalar(1 + e * 2.4);
+        m.material.opacity = 0.95 * (1 - e);
+        if (t >= dur) this.dead = true;
+      },
+      dispose: function () { Anim.scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    });
+    addDust(pos, 8); // 出膛硝烟
+    Audio.fire(); // 开火轰鸣
+  }
+
   /* ---------------- 行棋 / 冲锋 ---------------- */
   function move(piece, from, to, isCapture) {
     var type = piece.type;
@@ -198,7 +225,7 @@
     Audio.move(type);
 
     if (type === 'C') {
-      // 抛石机不冲锋：原地投石，由 attack 抛飞石砸远目标，最后 doMove 落位
+      // 火炮不冲锋：原地开火，由 attack 抛弹丸砸远目标，最后 doMove 落位
       return Promise.resolve();
     }
 
@@ -279,7 +306,6 @@
     if (p0.y < 0.9) p0.y = 0.9; // 保证从高处抛出
     stone.position.copy(p0);
     Anim.scene.add(stone);
-    Audio.fire(); // 抛石机开火
     window.__stoneActive = true;
     var p1 = new THREE.Vector3(vp.x, 0.35, vp.z);
     var trailAt = [0.18, 0.36, 0.54];
@@ -313,70 +339,113 @@
     Audio.warcry(); // 厮杀喊杀声
 
     switch (type) {
-      case 'H': // 骑兵冲杀：大刀从高举横扫而下
-        seq = weaponSwing(w, { x: fz * 0.4, y: -1.1, z: 1.6 }, 0.16)
-          .then(function () {
-            addSlash(vp, -0.5); addHit(vp); Audio.clash();
-            grp.rotation.z = 0.14; grp.position.y = 0.12;
-          })
-          .then(function () { return sleep(0.16); })
-          .then(function () { return weaponSwing(w, { x: 0, y: 0, z: 0 }, 0.18); })
-          .then(function () { grp.rotation.z = 0; grp.position.y = 0; });
+      case 'H': // 骑兵冲杀：人立嘶鸣 → 跃下横扫 → 踏地扬尘
+        var legsA = piece.anchors.legs;
+        Audio.neigh();
+        seq = tween(0.2, function (p) {
+          grp.rotation.x = -fz * 0.28 * easeIn(p);   // 前蹄扬起，人立
+          grp.position.y = 0.16 * easeIn(p);
+          if (legsA) legsA.forEach(function (l, i) {
+            var front = (fz === -1) ? (i < 2) : (i >= 2); // 靠近对手一侧为前腿
+            l.group.rotation.x = front ? -fz * 0.5 * easeIn(p) : 0;
+          });
+        })
+        .then(function () { return weaponSwing(w, { x: fz * 0.4, y: -1.1, z: 1.6 }, 0.14); })
+        .then(function () {
+          addSlash(vp, -0.5); addHit(vp); Audio.clash(); addDust(vp, 8);
+          grp.rotation.z = 0.14; grp.position.y = 0.12;
+        })
+        .then(function () { return sleep(0.16); })
+        .then(function () {
+          return tween(0.2, function (p) {
+            var e = easeOut(p);
+            grp.rotation.x = -fz * 0.28 * (1 - e);
+            grp.rotation.z = 0.14 * (1 - e);
+            grp.position.y = 0.12 * (1 - e);
+            if (legsA) legsA.forEach(function (l) { l.group.rotation.x = 0; });
+          });
+        })
+        .then(function () { return weaponSwing(w, { x: 0, y: 0, z: 0 }, 0.15); })
+        .then(function () { grp.rotation.set(0, 0, 0); grp.position.y = 0; });
         break;
-      case 'R': // 战车冲撞 + 戈刺
-        seq = weaponSwing(w, { x: fz * 0.9, y: 0.4, z: -0.8 }, 0.12)
+      case 'R': // 战车：隆隆冲撞 + 戈刺
+        var baseZ = grp.position.z;
+        Audio.rumble();
+        seq = tween(0.14, function (p) {
+          grp.position.z = baseZ + fz * 0.14 * easeIn(p); // 车体前冲
+          grp.rotation.z = fz * 0.05 * easeIn(p); // 微倾
+        })
+          .then(function () { return weaponSwing(w, { x: fz * 0.9, y: 0.4, z: -0.8 }, 0.12); })
           .then(function () {
             addSlash(vp, 0.6); addHit(vp); Audio.clash();
             grp.rotation.x = fz * 0.1;
           })
           .then(function () { return sleep(0.14); })
           .then(function () { return weaponSwing(w, { x: 0, y: 0, z: 0 }, 0.15); })
-          .then(function () { grp.rotation.x = 0; });
-        break;
-      case 'G': // 主帅重剑下劈（缓而沉）
-        seq = weaponSwing(w, { x: -fz * 1.45, y: 0, z: 0.4 }, 0.2)
           .then(function () {
-            addSlash(vp, fz * 0.9); addHit(vp); Audio.clash();
-            grp.rotation.x = -fz * 0.12;
+            grp.rotation.set(0, 0, 0); grp.position.z = baseZ; addDust(vp, 8);
+          });
+        break;
+      case 'G': // 主帅：嘶吼 + 重剑下劈（缓而沉）
+        Audio.grunt();
+        seq = weaponSwing(w, { x: -fz * 1.5, y: 0, z: 0.5 }, 0.24)
+          .then(function () {
+            addSlash(vp, fz * 0.9); addHit(vp); Audio.clash(); addDust(vp, 6);
+            grp.rotation.x = -fz * 0.14;
           })
           .then(function () { return sleep(0.18); })
           .then(function () { return weaponSwing(w, { x: 0, y: 0, z: 0 }, 0.2); })
           .then(function () { grp.rotation.x = 0; });
         break;
-      case 'S': // 步卒挺刀突刺
-        seq = tween(0.1, function (p) { w.position.z = fz * 0.35 + fz * 0.6 * easeIn(p); })
+      case 'S': // 步卒：嘶吼 + 挺刀突刺
+        Audio.grunt();
+        seq = tween(0.08, function (p) { grp.rotation.x = fz * -0.12 * easeIn(p); })
           .then(function () {
-            addHit(vp); Audio.clash();
-            grp.rotation.x = fz * 0.12;
+            return tween(0.1, function (p) { w.position.z = fz * 0.35 + fz * 0.65 * easeIn(p); });
+          })
+          .then(function () {
+            addHit(vp); addSlash(vp, fz * 0.4); Audio.clash();
+            grp.rotation.x = fz * 0.16;
           })
           .then(function () { return sleep(0.12); })
           .then(function () {
-            return tween(0.15, function (p) { w.position.z = fz * 0.35 + fz * 0.6 * (1 - easeOut(p)); });
+            return tween(0.15, function (p) { w.position.z = fz * 0.35 + fz * 0.65 * (1 - easeOut(p)); });
           })
           .then(function () { grp.rotation.x = 0; });
         break;
-      case 'C': // 抛石机：后拉蓄力 → 投出飞石 → 复位
-        seq = tween(0.16, function (p) { w.rotation.x = fz * 0.55 * easeIn(p); })
+      case 'C': // 红衣大炮：炮身后坐 → 炮口闪光 → 弹丸出膛 → 复位
+        var barrelA = piece.anchors.barrel;
+        var muzzleA = piece.anchors.muzzle || w;
+        seq = tween(0.09, function (p) {
+          if (barrelA) barrelA.position.z = -fz * 0.16 * easeIn(p); // 后坐
+        })
           .then(function () {
-            return launchStone(grp, w, vp, fz); // 石弹飞行砸落
+            var mp = new THREE.Vector3();
+            muzzleA.getWorldPosition(mp);
+            addMuzzleFlash(mp); // 炮口闪光 + 硝烟 + 轰鸣
+            return launchStone(grp, muzzleA, vp, fz);
           })
-          .then(function () { return sleep(0.16); })
-          .then(function () { return tween(0.4, function (p) { w.rotation.x = fz * -0.7 * (1 - easeOut(p)); }); })
-          .then(function () { w.rotation.x = 0; });
+          .then(function () { return sleep(0.18); })
+          .then(function () {
+            return tween(0.35, function (p) {
+              if (barrelA) barrelA.position.z = -fz * 0.16 * (1 - easeOut(p)); // 复位
+            });
+          });
         break;
-      case 'E': // 战象：扬蹄重踏
-        seq = tween(0.16, function (p) {
-          grp.rotation.x = -fz * 0.24 * easeIn(p);
-          grp.position.y = 0.14 * easeIn(p);
+      case 'E': // 战象：扬鼻嘶鸣 → 重踏地动
+        Audio.trumpet();
+        seq = tween(0.18, function (p) {
+          grp.rotation.x = -fz * 0.3 * easeIn(p);
+          grp.position.y = 0.2 * easeIn(p);
         })
           .then(function () {
             return tween(0.1, function (p) {
-              grp.rotation.x = fz * (-0.24 + 0.3) * easeIn(p);
-              grp.position.y = 0.14 - 0.2 * easeIn(p);
+              grp.rotation.x = fz * (-0.3 + 0.36) * easeIn(p);
+              grp.position.y = 0.2 - 0.28 * easeIn(p);
             });
           })
           .then(function () {
-            addHit(vp); Audio.cannon(); addDust(vp, 6);
+            addHit(vp); Audio.cannon(); addDust(vp, 10); Audio.land();
           })
           .then(function () { return sleep(0.16); })
           .then(function () {
@@ -386,8 +455,9 @@
             });
           });
         break;
-      case 'A': // 文官挥笏轻击
-        seq = weaponSwing(w, { x: -fz * 1.5, y: 0, z: 0.3 }, 0.12)
+      case 'A': // 文官：步进 + 挥笏轻击
+        seq = tween(0.1, function (p) { grp.rotation.x = fz * -0.08 * easeIn(p); })
+          .then(function () { return weaponSwing(w, { x: -fz * 1.5, y: 0, z: 0.3 }, 0.12); })
           .then(function () {
             addHit(vp); Audio.clash();
             grp.rotation.x = fz * 0.1;
