@@ -1,10 +1,8 @@
 /* ============================================================
- * 3D 战场棋盘：泥石大地、湿盘面、暗网格、楚河水面、军旗岩石
- * 坐标：col 0..8 → x = (col-4)；row 0..9 → z = (row-4.5)；地面 y=0
+ * 经典木质棋盘：浅色木盘面、深褐网格线、楚河汉界、炮/兵位标记
+ * 坐标：col 0..8 → x = (col-4)；row 0..9 → z = (row-4.5)；盘面顶 y=0
  * 保留原 API：pos / showHighlights / clearHighlights /
- *            updateHighlights / selectedRing / scene / group
- * 装饰物约束：y≤0.01 或落在棋盘脚印之外（|x|>4.9 或 |z|>5.4），
- *            绝不与高亮盒（y≈0.02）或棋子（y=0）相交
+ *            updateHighlights / selectedRing / scene / group / POS
  * ============================================================ */
 (function () {
   'use strict';
@@ -13,7 +11,6 @@
     scene: null,
     group: null,
     highlights: [],
-    _highlightPhase: 0,
     POS: null
   };
 
@@ -24,7 +21,7 @@
     return new THREE.Vector3((col - 4) * SPACING, 0, (row - 4.5) * SPACING);
   }
 
-  /* 材质（PBR） */
+  /* 材质缓存 */
   var M = (function () {
     var cache = {};
     return function (color, metal, rough) {
@@ -34,102 +31,164 @@
     };
   })();
 
-  function box(w, h, d, color, x, y, z, parent, rx, ry) {
+  function box(w, h, d, color, x, y, z, parent) {
     var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M(color));
     m.position.set(x, y, z);
-    if (rx) m.rotation.x = rx;
-    if (ry) m.rotation.y = ry;
     m.receiveShadow = true;
     parent.add(m);
     return m;
   }
 
-  /* 泥地噪点贴图 */
-  function mudTexture() {
+  /* 浅木纹贴图（盘面）：米黄底色 + 细密纵向木纹 */
+  function woodFaceTexture() {
     var cv = document.createElement('canvas');
-    cv.width = 256; cv.height = 256;
+    cv.width = 512; cv.height = 512;
     var ctx = cv.getContext('2d');
-    ctx.fillStyle = '#2c3036';
-    ctx.fillRect(0, 0, 256, 256);
-    var img = ctx.getImageData(0, 0, 256, 256);
-    var d = img.data;
-    for (var p = 0; p < d.length; p += 4) {
-      var n = (Math.random() - 0.5) * 34;
-      d[p] += n; d[p + 1] += n; d[p + 2] += n;
+    ctx.fillStyle = '#d9b981';
+    ctx.fillRect(0, 0, 512, 512);
+    for (var i = 0; i < 90; i++) {
+      var x = Math.random() * 512;
+      var w = 1 + Math.random() * 2.2;
+      var a = 0.04 + Math.random() * 0.07;
+      ctx.strokeStyle = 'rgba(120,80,38,' + a.toFixed(3) + ')';
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.bezierCurveTo(x + (Math.random() - 0.5) * 26, 170, x + (Math.random() - 0.5) * 26, 340, x + (Math.random() - 0.5) * 18, 512);
+      ctx.stroke();
     }
-    ctx.putImageData(img, 0, 0);
+    for (var k = 0; k < 5; k++) { /* 少量较深年轮线 */
+      var gx = Math.random() * 512;
+      ctx.strokeStyle = 'rgba(96,62,28,0.16)';
+      ctx.lineWidth = 3 + Math.random() * 4;
+      ctx.beginPath();
+      ctx.moveTo(gx, 0);
+      ctx.bezierCurveTo(gx + (Math.random() - 0.5) * 40, 180, gx + (Math.random() - 0.5) * 40, 360, gx, 512);
+      ctx.stroke();
+    }
     var t = new THREE.CanvasTexture(cv);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(4, 4);
     return t;
   }
 
-  /* 楚河水面贴图（暗色 + 淡字） */
-  function waterTexture() {
+  /* 深胡桃木纹（桌沿 / 桌面） */
+  function darkWoodTexture() {
     var cv = document.createElement('canvas');
-    cv.width = 512; cv.height = 128;
+    cv.width = 256; cv.height = 256;
     var ctx = cv.getContext('2d');
-    ctx.fillStyle = '#1d3636';
-    ctx.fillRect(0, 0, 512, 128);
-    ctx.font = 'bold 92px "Microsoft YaHei","SimHei",serif';
+    ctx.fillStyle = '#4a3526';
+    ctx.fillRect(0, 0, 256, 256);
+    for (var i = 0; i < 60; i++) {
+      var x = Math.random() * 256;
+      ctx.strokeStyle = 'rgba(24,14,8,' + (0.05 + Math.random() * 0.08).toFixed(3) + ')';
+      ctx.lineWidth = 1 + Math.random() * 3;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + (Math.random() - 0.5) * 12, 256);
+      ctx.stroke();
+    }
+    var t = new THREE.CanvasTexture(cv);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(2, 2);
+    return t;
+  }
+
+  /* 楚河汉界文字贴图（透明底，平铺在河面） */
+  function riverTextTexture() {
+    var cv = document.createElement('canvas');
+    cv.width = 1024; cv.height = 128;
+    var ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, 1024, 128);
+    ctx.font = 'bold 84px "KaiTi","STKaiti","Microsoft YaHei","SimHei",serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(165,185,195,0.22)';
-    ctx.fillText('楚 河 · 漢 界', 256, 64);
+    ctx.fillStyle = 'rgba(58,36,18,0.85)';
+    /* 左半：楚 河　右半：漢 界 */
+    ctx.fillText('楚', 190, 66);
+    ctx.fillText('河', 350, 66);
+    ctx.fillText('漢', 674, 66);
+    ctx.fillText('界', 834, 66);
     return new THREE.CanvasTexture(cv);
   }
 
-  /* 军旗（杆 + 旗面） */
-  function banner(color, x, z) {
-    var g = new THREE.Group();
-    var pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.028, 0.035, 1.9, 8),
-      new THREE.MeshStandardMaterial({ color: 0x3a3d42, metalness: 0.6, roughness: 0.45 })
-    );
-    pole.position.y = 0.95;
-    pole.castShadow = true;
-    g.add(pole);
-    var flag = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.95, 0.58),
-      new THREE.MeshStandardMaterial({ color: color, side: THREE.DoubleSide, roughness: 0.72 })
-    );
-    flag.position.set(0.5, 1.32, 0);
-    flag.castShadow = true;
-    g.add(flag);
-    g.position.set(x, 0, z);
-    return g;
+  /* 炮位/兵位小十字标记（四角短折线；边路省略朝外一侧） */
+  function positionMark(x, z, skipLeft, skipRight, parent) {
+    var L = 0.13;           /* 臂长 */
+    var off = 0.09;         /* 距交点偏移 */
+    var t = 0.022, y = 0.021;
+    /* [w, d, cx, cz] × 左上/右上/左下/右下 */
+    var segs = [
+      [-off - L / 2, -off, L, t], [-off, -off - L / 2, t, L],
+      [ off + L / 2, -off, L, t], [ off, -off - L / 2, t, L],
+      [-off - L / 2,  off, L, t], [-off,  off + L / 2, t, L],
+      [ off + L / 2,  off, L, t], [ off,  off + L / 2, t, L]
+    ];
+    var flags = [
+      !skipLeft, !skipLeft,
+      !skipRight, !skipRight,
+      !skipLeft, !skipLeft,
+      !skipRight, !skipRight
+    ];
+    segs.forEach(function (s, i) {
+      if (!flags[i]) return;
+      box(s[2], 0.004, s[3], 0x3a2414, x + s[0], y, z + s[1], parent);
+    });
   }
 
   function buildBoard(scene) {
     var g = new THREE.Group();
 
-    /* 大泥地（顶面 y=0） */
-    var mud = new THREE.Mesh(
-      new THREE.BoxGeometry(22, 0.3, 22),
-      new THREE.MeshStandardMaterial({ map: mudTexture(), color: 0xffffff, metalness: 0, roughness: 0.95 })
+    /* 木桌（深胡桃木，顶面 y=-0.06） */
+    var table = new THREE.Mesh(
+      new THREE.BoxGeometry(20, 0.5, 20),
+      new THREE.MeshStandardMaterial({ map: darkWoodTexture(), color: 0xffffff, roughness: 0.82 })
     );
-    mud.position.y = -0.15;
-    mud.receiveShadow = true;
-    g.add(mud);
+    table.position.y = -0.31;
+    table.receiveShadow = true;
+    g.add(table);
 
-    /* 湿棋盘面（低粗糙度 → 雨水反光） */
+    /* 棋盘外框：四条边框梁围成凸起外沿（中间镂空，露出盘面与网格线） */
+    var frameMat = new THREE.MeshStandardMaterial({ map: darkWoodTexture(), color: 0xffffff, roughness: 0.7 });
+    function frameBar(w, d, x, z) {
+      var m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.26, d), frameMat);
+      m.position.set(x, -0.06, z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      g.add(m);
+      return m;
+    }
+    var BW = 0.4;                                   /* 边框宽 */
+    frameBar(10.6, BW, 0, -(5.8 - BW / 2));         /* 上沿 */
+    frameBar(10.6, BW, 0,  (5.8 - BW / 2));         /* 下沿 */
+    frameBar(BW, 11.6 - 2 * BW, -(5.3 - BW / 2), 0);/* 左沿 */
+    frameBar(BW, 11.6 - 2 * BW,  (5.3 - BW / 2), 0);/* 右沿 */
+
+    /* 浅木盘面：顶面与框沿同高，棋子落在框内凹槽底（y=0），
+       盘面本体从 y=-0.04 到 y=0.06，中间挖槽视觉由线层+暗色底呈现 */
     var face = new THREE.Mesh(
-      new THREE.BoxGeometry(9.1, 0.02, 10.1),
-      new THREE.MeshStandardMaterial({ color: 0x33363c, metalness: 0, roughness: 0.55, envMapIntensity: 1.1 })
+      new THREE.BoxGeometry(9.8, 0.2, 10.8),
+      new THREE.MeshStandardMaterial({ map: woodFaceTexture(), color: 0xffffff, roughness: 0.6 })
     );
-    face.position.y = 0.01;
+    face.position.y = -0.09;   /* 顶面 y=0.01 */
     face.receiveShadow = true;
     g.add(face);
 
-    /* 网格线（暗色沟壑），y≈0.02 */
-    var lineH = 0.03, lineW = 0.035;
+    /* 网格线（深褐色），y≈0.02 —— 与旧版一致，棋子底面 y=0 不穿模 */
+    var lineH = 0.036, lineW = 0.05, LC = 0x2e1c0e;
+
+    /* 10 条横线 */
     for (var r = 0; r < 10; r++) {
-      box(8.0, lineH, lineW, 0x15181d, 0, 0.02, r - 4.5, g);
+      box(8.0 + lineW, lineH, lineW, LC, 0, 0.02, r - 4.5, g);
     }
+    /* 9 组竖线：中间河流断开（仅两侧边线贯通） */
     for (var c = 0; c < 9; c++) {
       var x = c - 4;
-      box(lineW, lineH, 4.0, 0x15181d, x, 0.02, -2.5, g);
-      box(lineW, lineH, 4.0, 0x15181d, x, 0.02, 2.5, g);
+      if (c === 0 || c === 8) {
+        box(lineW, lineH, 8.0 + lineW, LC, x, 0.02, 0, g);
+      } else {
+        box(lineW, lineH, 4.0, LC, x, 0.02, -2.5, g);
+        box(lineW, lineH, 4.0, LC, x, 0.02, 2.5, g);
+      }
     }
 
     /* 九宫斜线 */
@@ -137,9 +196,10 @@
       var dx = p2.x - p1.x, dz = p2.z - p1.z;
       var len = Math.sqrt(dx * dx + dz * dz);
       var ang = -Math.atan2(dz, dx);
-      var m = new THREE.Mesh(new THREE.BoxGeometry(len, lineH, lineW), M(0x15181d));
+      var m = new THREE.Mesh(new THREE.BoxGeometry(len, lineH, lineW), M(LC));
       m.position.set((p1.x + p2.x) / 2, 0.02, (p1.z + p2.z) / 2);
       m.rotation.y = ang;
+      m.receiveShadow = true;
       g.add(m);
     }
     diagonal(pos(3, 7), pos(5, 9));
@@ -147,57 +207,30 @@
     diagonal(pos(3, 0), pos(5, 2));
     diagonal(pos(5, 0), pos(3, 2));
 
-    /* 楚河水面（y=0.012，depthWrite:false 保证高亮/棋子可透过） */
-    var water = new THREE.Mesh(
-      new THREE.PlaneGeometry(8.2, 1.0),
-      new THREE.MeshStandardMaterial({
-        map: waterTexture(), color: 0xffffff,
-        metalness: 0, roughness: 0.05,
-        transparent: true, opacity: 0.8, depthWrite: false, envMapIntensity: 1.3
-      })
+    /* 外围加粗边框线（上下两条传统上加粗） */
+    box(8.0 + lineW * 2.4, 0.008, lineW * 2.4, LC, 0, 0.028, -4.5, g);
+    box(8.0 + lineW * 2.4, 0.008, lineW * 2.4, LC, 0, 0.028, 4.5, g);
+
+    /* 楚河汉界文字（透明贴图，铺在河面） */
+    var riverText = new THREE.Mesh(
+      new THREE.PlaneGeometry(8.0, 1.0),
+      new THREE.MeshBasicMaterial({ map: riverTextTexture(), transparent: true, depthWrite: false })
     );
-    water.rotation.x = -Math.PI / 2;
-    water.position.set(0, 0.012, 0);
-    g.add(water);
+    riverText.rotation.x = -Math.PI / 2;
+    riverText.position.set(0, 0.03, 0);
+    riverText.renderOrder = 1;
+    g.add(riverText);
 
-    /* 四角暗石标记 */
-    [[0, 0], [8, 0], [0, 9], [8, 9]].forEach(function (c) {
-      var p = pos(c[0], c[1]);
-      box(0.22, 0.05, 0.22, 0x3a3f46, p.x, 0.02, p.z, g);
+    /* 炮位 / 兵位标记 */
+    [[1, 2], [7, 2], [1, 7], [7, 7]].forEach(function (p) {
+      positionMark(p[0] - 4, p[1] - 4.5, false, false, g);
     });
-
-    /* 岩石（棋盘脚印之外） */
-    var rockPos = [[-6.0, 2.2], [6.4, -1.6], [-6.4, -3.4], [5.6, 3.6], [-2.5, 6.2], [3.2, -6.4]];
-    rockPos.forEach(function (rp) {
-      var s = 0.28 + Math.random() * 0.3;
-      var m = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(s, 0),
-        M(0x3d434b, 0, 0.95)
-      );
-      m.position.set(rp[0], s * 0.55, rp[1]);
-      m.rotation.set(Math.random() * 3, Math.random() * 3, 0);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      g.add(m);
+    [[0, 3], [2, 3], [4, 3], [6, 3], [8, 3]].forEach(function (p) {
+      positionMark(p[0] - 4, p[1] - 4.5, p[0] === 0, p[0] === 8, g);
     });
-
-    /* 水洼（湿反光，y≤0.01，棋盘之外） */
-    var puddlePos = [[5.3, 2.8], [-5.6, -2.2], [1.8, 5.7], [-2.4, -5.8]];
-    puddlePos.forEach(function (pp) {
-      var m = new THREE.Mesh(
-        new THREE.CircleGeometry(0.45 + Math.random() * 0.3, 22),
-        new THREE.MeshStandardMaterial({ color: 0x1c2629, roughness: 0.08, transparent: true, opacity: 0.7, envMapIntensity: 1.5 })
-      );
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(pp[0], 0.006, pp[1]);
-      g.add(m);
+    [[0, 6], [2, 6], [4, 6], [6, 6], [8, 6]].forEach(function (p) {
+      positionMark(p[0] - 4, p[1] - 4.5, p[0] === 0, p[0] === 8, g);
     });
-
-    /* 军旗（四角成框景） */
-    g.add(banner(0x7a1f2a, 4.9, 5.6));    // 红旗（红方阵后）
-    g.add(banner(0x7a1f2a, -4.9, 5.6));
-    g.add(banner(0x2a3444, 4.9, -5.6));   // 黑旗（黑方阵后）
-    g.add(banner(0x2a3444, -4.9, -5.6));
 
     scene.add(g);
     Board.group = g;
@@ -210,46 +243,54 @@
     Board.highlights = [];
   }
 
-  /* list: [{col,row,capture}] */
+  /* list: [{col,row,capture}] —— 空点=绿点，吃子=红环
+     不透明实心材质：渲染稳定（不受透明排序/帧时序影响），更贴近经典棋类 UI */
   function showHighlights(list) {
     clearHighlights();
     list.forEach(function (t) {
       var p = pos(t.col, t.row);
-      var color = t.capture ? 0xe8503a : 0x46d36b;
-      var mat = new THREE.MeshBasicMaterial({
-        color: color,
-        transparent: true,
-        opacity: 0.5,
-        depthWrite: false
-      });
-      var m = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.03, 0.68), mat);
-      m.position.set(p.x, 0.02, p.z);
+      var m;
+      if (t.capture) {
+        m = new THREE.Mesh(
+          new THREE.RingGeometry(0.30, 0.46, 32),
+          new THREE.MeshBasicMaterial({ color: 0xd94a35, side: THREE.DoubleSide })
+        );
+        m.rotation.x = -Math.PI / 2;
+      } else {
+        m = new THREE.Mesh(
+          new THREE.CircleGeometry(0.17, 28),
+          new THREE.MeshBasicMaterial({ color: 0x2f9e57 })
+        );
+        m.rotation.x = -Math.PI / 2;
+      }
+      m.position.set(p.x, 0.04, p.z);
       m.userData.target = t;
-      m.renderOrder = 2;
       Board.scene.add(m);
       Board.highlights.push(m);
+
+      /* 隐形命中区：覆盖整个交点格（半径 0.49）。
+         点击敌方棋子身体或格内任意位置都能命中 —— 射线检测只针对
+         Board.highlights 数组，不受棋子模型遮挡影响 */
+      var hit = new THREE.Mesh(
+        new THREE.CircleGeometry(0.49, 12),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+      );
+      hit.rotation.x = -Math.PI / 2;
+      hit.position.set(p.x, 0.06, p.z);
+      hit.userData.target = t;
+      Board.scene.add(hit);
+      Board.highlights.push(hit);
     });
   }
 
-  function updateHighlights(dt) {
-    Board._highlightPhase += dt * 3.2;
-    var pulse = 0.42 + Math.sin(Board._highlightPhase) * 0.14;
-    Board.highlights.forEach(function (m) {
-      m.material.opacity = pulse;
-      var s = 1 + Math.sin(Board._highlightPhase) * 0.06;
-      m.scale.set(s, 1, s);
-    });
-  }
+  function updateHighlights() {}
 
-  /* 选中格的小圆环标记 */
+  /* 选中棋子的金色圆环标记 */
   function selectedRing() {
-    var geo = new THREE.RingGeometry(0.34, 0.46, 32);
+    var geo = new THREE.RingGeometry(0.40, 0.50, 36);
     var mat = new THREE.MeshBasicMaterial({
-      color: 0xffe08a,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide,
-      depthWrite: false
+      color: 0xe9b64f,
+      side: THREE.DoubleSide
     });
     var m = new THREE.Mesh(geo, mat);
     m.rotation.x = -Math.PI / 2;

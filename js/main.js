@@ -20,7 +20,6 @@
   var pendingMoves = [];  // 本地动画期间到达的远程着法队列（FIFO）
   var camPinned = false;  // __chess.setCamera 后钉死镜头（测试/调试用）
   var camBase = new THREE.Vector3(0, 0, 0);   // 本局固定观察点（按 mySide）
-  var shakeMag = 0;       // 吃子镜头轻微震动幅度
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -33,18 +32,18 @@
     renderer.shadowMap.type = THREE.PCFShadowMap; // 普通 PCF 比 PCFSoft 便宜
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
+    renderer.toneMappingExposure = 1.08;
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0d14);
-    scene.fog = new THREE.Fog(0x0a0d14, 8, 30);
+    scene.background = new THREE.Color(0x1c1410);
+    scene.fog = new THREE.Fog(0x1c1410, 14, 34);
 
     camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position.set(0, 9.5, 12.5);
 
-    /* 灯光（冷调暗夜 + 闪电补充） */
-    scene.add(new THREE.HemisphereLight(0x6a7c9c, 0x14181f, 0.5));
-    var dir = new THREE.DirectionalLight(0xb8c6da, 1.0);
+    /* 灯光（暖色室内光） */
+    scene.add(new THREE.HemisphereLight(0xf7e9cf, 0x4a3626, 0.75));
+    var dir = new THREE.DirectionalLight(0xfff1dc, 1.05);
     dir.position.set(8, 12, 6);
     dir.castShadow = true;
     dir.shadow.mapSize.set(512, 512); // 512 阴影贴图，显著降低阴影 pass 开销
@@ -53,16 +52,16 @@
     dir.shadow.camera.near = 1; dir.shadow.camera.far = 35;
     dir.shadow.camera.updateProjectionMatrix();
     scene.add(dir);
-    var rim = new THREE.DirectionalLight(0x4a5a74, 0.35); // 冷色轮廓光
+    var rim = new THREE.DirectionalLight(0xd9c2a0, 0.3); // 暖色补光
     rim.position.set(-6, 8, -7);
     scene.add(rim);
-    scene.add(new THREE.AmbientLight(0x3a4a66, 0.18));
+    scene.add(new THREE.AmbientLight(0x77624d, 0.32));
 
     /* 程序化环境反射贴图：让金属/丝绸呈现真实反光 */
     (function setupEnv() {
       var pmrem = new THREE.PMREMGenerator(renderer);
       var envScene = new THREE.Scene();
-      envScene.background = new THREE.Color(0x0a0d14);
+      envScene.background = new THREE.Color(0x1c1410);
       function panel(color, x, y, z, w) {
         var m = new THREE.Mesh(
           new THREE.PlaneGeometry(w || 5, w ? w * 0.6 : 3),
@@ -72,10 +71,10 @@
         m.lookAt(0, 0, 0);
         envScene.add(m);
       }
-      panel(0x7c8fa8, 6, 4, 6);      // 主光（冷蓝）
-      panel(0x5a6b85, -7, 3, -6, 4); // 冷补光
-      panel(0x8fa3bd, 0, 9, 0);      // 顶光
-      panel(0x0e1117, 0, -5, 0, 9);  // 地光
+      panel(0xe8d3ae, 6, 4, 6);      // 主光（冷蓝）
+      panel(0xb09a78, -7, 3, -6, 4); // 冷补光
+      panel(0xf2e2c4, 0, 9, 0);      // 顶光
+      panel(0x2b2018, 0, -5, 0, 9);  // 地光
       var rt = pmrem.fromScene(envScene, 0.18);
       scene.environment = rt.texture;
     })();
@@ -94,8 +93,6 @@
     Board.scene = scene;
     Anim.scene = scene;
     Board.buildBoard(scene);
-    Atmos.renderer = renderer;
-    Atmos.init(scene);
 
     /* 事件 */
     canvas.addEventListener('pointerdown', onPointerDown);
@@ -324,6 +321,7 @@
   /* ---------------- 调试/测试接口 ---------------- */
   window.__chess = {
     reset: resetGame,
+    loadState: loadState,
     get turn() { return game.turn; },
     get moveNum() { return game.moveNum; },
     get gameOver() { return game.gameOver; },
@@ -362,7 +360,6 @@
       camera.position.set(x, y, z);
       controls.target.set(tx, ty, tz);
       camPinned = true;
-      shakeMag = 0;
       controls.update();
     },
 
@@ -430,7 +427,6 @@
     try {
       await Anim.move(piece, from, to, !!victim);
       if (victim) {
-        shakeMag = Math.max(shakeMag, 0.3); // 吃子镜头轻震
         await Anim.attack(piece, victim);
         await Anim.removeVictim(victim);
       }
@@ -558,27 +554,15 @@
     var t = clock.elapsedTime;
     controls.update();
 
-    /* 待机呼吸：未在动画中的棋子轻微起伏，选中的棋子抬高 */
+    /* 经典样式：棋子静置，仅选中的棋子轻轻抬起 */
     for (var i = 0; i < pieces.length; i++) {
       var pc = pieces[i];
       if (pc.busy) continue;
-      var off = pc.selected ? 0.22 : 0;
-      off += Math.sin(t * 1.8 + pc.phase) * 0.025;
-      pc.group.position.y = pc.baseY + off;
+      pc.group.position.y = pc.baseY + (pc.selected ? 0.16 : 0);
     }
 
     Board.updateHighlights(dt);
     Anim.updateEffects(dt);
-    Atmos.update(dt, t);
-    /* 吃子镜头轻震（随机偏移 + 衰减） */
-    if (shakeMag > 0.0005 && !camPinned) {
-      camera.position.x += (Math.random() - 0.5) * shakeMag;
-      camera.position.z += (Math.random() - 0.5) * shakeMag;
-      camera.position.y += (Math.random() - 0.5) * shakeMag * 0.6;
-      shakeMag *= Math.exp(-7 * dt);
-    } else {
-      shakeMag = 0;
-    }
     renderer.render(scene, camera);
   }
 

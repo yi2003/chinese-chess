@@ -4,7 +4,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: radial-gradient(ellipse at 50% 30%, #1b2230 0%, #0c0e15 65%, #07080d 100%);
+  background: radial-gradient(ellipse at 50% 30%, #2a2018 0%, #171009 65%, #0b0705 100%);
   font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
   color: #e8dfc8;
   -webkit-user-select: none;
@@ -38,12 +38,12 @@ html, body {
   align-items: center;
   gap: 16px;
   padding: 12px 20px;
-  background: linear-gradient(180deg, rgba(12, 15, 22, 0.82), rgba(12, 15, 22, 0.45));
+  background: linear-gradient(180deg, rgba(28, 19, 12, 0.85), rgba(28, 19, 12, 0.45));
   backdrop-filter: blur(6px);
-  border-bottom: 1px solid rgba(255, 230, 190, 0.12);
+  border-bottom: 1px solid rgba(235, 205, 155, 0.16);
 }
 
-#brand { font-size: 17px; font-weight: 700; letter-spacing: 1px; color: #f2c96e; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+#brand { font-size: 17px; font-weight: 700; letter-spacing: 1px; color: #e8c37a; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
 
 .turn {
   font-size: 18px;
@@ -53,8 +53,8 @@ html, body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   transition: all 0.3s;
 }
-.turn.red   { background: linear-gradient(180deg, #b0303f, #7c1420); color: #ffe9d8; border: 1px solid #e08a7a; }
-.turn.black { background: linear-gradient(180deg, #39445c, #161c29); color: #e6dcc0; border: 1px solid #6f7b96; }
+.turn.red   { background: linear-gradient(180deg, #b23540, #7c161f); color: #ffe9d8; border: 1px solid #e0947e; }
+.turn.black { background: linear-gradient(180deg, #463a2c, #191209); color: #ece2c8; border: 1px solid #8a7354; }
 
 #moveinfo { font-size: 14px; color: #cbbfa2; opacity: 0.9; }
 
@@ -95,9 +95,9 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   font-size: 13px;
-  color: rgba(240, 232, 216, 0.75);
-  background: rgba(12, 15, 22, 0.6);
-  border: 1px solid rgba(255, 230, 190, 0.12);
+  color: rgba(240, 232, 214, 0.75);
+  background: rgba(24, 16, 10, 0.65);
+  border: 1px solid rgba(235, 205, 155, 0.14);
   border-radius: 22px;
   padding: 7px 18px;
   white-space: nowrap;
@@ -119,7 +119,7 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background: radial-gradient(ellipse at center, rgba(20, 16, 10, 0.55), rgba(8, 8, 12, 0.85));
+  background: radial-gradient(ellipse at center, rgba(32, 21, 12, 0.55), rgba(12, 8, 4, 0.86));
   backdrop-filter: blur(3px);
   z-index: 20;
   animation: fadeIn 0.4s;
@@ -181,7 +181,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at center, rgba(16, 14, 12, 0.55), rgba(6, 7, 11, 0.88));
+  background: radial-gradient(ellipse at center, rgba(24, 17, 11, 0.55), rgba(10, 7, 4, 0.88));
   backdrop-filter: blur(4px);
   z-index: 15;
   animation: fadeIn 0.3s;
@@ -191,8 +191,8 @@ html, body {
 .lobby-panel {
   width: 340px;
   max-width: calc(100vw - 40px);
-  background: linear-gradient(180deg, rgba(24, 28, 38, 0.94), rgba(14, 17, 24, 0.96));
-  border: 1px solid rgba(242, 201, 110, 0.35);
+  background: linear-gradient(180deg, rgba(43, 30, 19, 0.95), rgba(26, 18, 11, 0.97));
+  border: 1px solid rgba(232, 195, 122, 0.4);
   border-radius: 18px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0,0,0,0.4);
   padding: 28px 26px 24px;
